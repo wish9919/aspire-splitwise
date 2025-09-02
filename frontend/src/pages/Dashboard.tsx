@@ -7,6 +7,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CreditCard,
+  Edit,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { groupsApi, expensesApi, settlementsApi } from "../services/api";
@@ -14,6 +16,7 @@ import { Group, Expense, Settlement } from "../types";
 import { formatCurrency } from "../utils/currency";
 import toast from "react-hot-toast";
 import AddExpenseModal from "../components/AddExpenseModal";
+import EditExpenseModal from "../components/EditExpenseModal";
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -22,6 +25,8 @@ const Dashboard: React.FC = () => {
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [stats, setStats] = useState({
     totalGroups: 0,
     totalExpenses: 0,
@@ -44,39 +49,24 @@ const Dashboard: React.FC = () => {
       // Fetch all user expenses (both group and non-group)
       const allExpenses: Expense[] = [];
 
-      // Fetch group expenses
-      for (const group of userGroups) {
-        try {
-          const groupExpenses = await expensesApi.getGroupExpenses(group._id, {
-            limit: 10,
-          });
-          allExpenses.push(...groupExpenses.data);
-        } catch (error) {
-          console.error(
-            `Error fetching expenses for group ${group._id}:`,
-            error
-          );
-        }
-      }
-
-      // Fetch non-group expenses
+      // Fetch all user expenses in one call to avoid duplicates
       try {
         const userExpensesResponse = await expensesApi.getUserExpenses();
-        const nonGroupExpenses = userExpensesResponse.expenses.filter(
-          (expense) =>
-            !expense.group ||
-            (typeof expense.group === "string" &&
-              !userGroups.some((g) => g._id === expense.group))
-        );
-        allExpenses.push(...nonGroupExpenses);
+        allExpenses.push(...userExpensesResponse.expenses);
       } catch (error) {
-        console.error("Error fetching non-group expenses:", error);
+        console.error("Error fetching user expenses:", error);
       }
 
-      // Sort by date and take most recent
-      const sortedExpenses = [...allExpenses]
+      // Remove duplicates and sort by date, then take most recent
+      const uniqueExpenses = allExpenses.filter(
+        (expense, index, self) =>
+          index === self.findIndex((e) => e._id === expense._id)
+      );
+
+      const sortedExpenses = uniqueExpenses
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 5);
+
       setRecentExpenses(sortedExpenses);
 
       // Fetch user settlements
@@ -135,6 +125,30 @@ const Dashboard: React.FC = () => {
       month: "short",
       day: "numeric",
     });
+  };
+
+  const handleEditExpense = (expense: Expense) => {
+    setEditingExpense(expense);
+    setShowEditExpenseModal(true);
+  };
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      try {
+        await expensesApi.deleteExpense(expenseId);
+        toast.success("Expense deleted successfully");
+        fetchDashboardData(); // Reload data
+      } catch (error: any) {
+        console.error("Delete expense error:", error);
+        toast.error(
+          error.response?.data?.message || "Failed to delete expense"
+        );
+      }
+    }
+  };
+
+  const handleExpenseUpdated = () => {
+    fetchDashboardData(); // Reload data to show the updated expense
   };
 
   if (loading) {
@@ -335,9 +349,7 @@ const Dashboard: React.FC = () => {
                   const userSplit = expense.splits.find(
                     (split) => split.user._id === user?._id
                   );
-                  const otherSplits = expense.splits.filter(
-                    (split) => split.user._id !== user?._id
-                  );
+                  const allSplits = expense.splits;
                   const isUserPayer = expense.paidBy._id === user?._id;
                   const userOweAmount = userSplit?.amount || 0;
                   const userPaidAmount = isUserPayer ? expense.amount : 0;
@@ -366,13 +378,31 @@ const Dashboard: React.FC = () => {
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium text-gray-900">
-                            {formatCurrency(expense.amount)}
-                          </p>
-                          <p className="text-xs text-gray-500 capitalize">
-                            {expense.category}
-                          </p>
+                        <div className="flex items-center space-x-3">
+                          <div className="text-right">
+                            <p className="font-medium text-gray-900">
+                              {formatCurrency(expense.amount)}
+                            </p>
+                            <p className="text-xs text-gray-500 capitalize">
+                              {expense.category}
+                            </p>
+                          </div>
+                          <div className="flex space-x-1">
+                            <button
+                              onClick={() => handleEditExpense(expense)}
+                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                              title="Edit expense"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteExpense(expense._id)}
+                              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                              title="Delete expense"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -448,13 +478,13 @@ const Dashboard: React.FC = () => {
                       </div>
 
                       {/* Other Participants */}
-                      {otherSplits.length > 0 && (
+                      {allSplits.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-gray-100">
                           <p className="text-xs font-medium text-gray-700 mb-2">
-                            Other participants:
+                            Participants:
                           </p>
                           <div className="flex flex-wrap gap-2">
-                            {otherSplits.map((split) => (
+                            {allSplits.map((split) => (
                               <div
                                 key={split.user._id}
                                 className="flex items-center space-x-1 text-xs bg-gray-100 px-2 py-1 rounded"
@@ -540,6 +570,24 @@ const Dashboard: React.FC = () => {
           setShowAddExpenseModal(false);
         }}
       />
+
+      {/* Edit Expense Modal */}
+      {editingExpense && (
+        <EditExpenseModal
+          isOpen={showEditExpenseModal}
+          onClose={() => {
+            setShowEditExpenseModal(false);
+            setEditingExpense(null);
+          }}
+          expense={editingExpense}
+          group={
+            editingExpense.group && typeof editingExpense.group === "object"
+              ? editingExpense.group
+              : null
+          }
+          onExpenseUpdated={handleExpenseUpdated}
+        />
+      )}
     </div>
   );
 };

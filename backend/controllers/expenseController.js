@@ -131,7 +131,6 @@ const createExpense = async (req, res) => {
     } = req.body;
 
     let group = null;
-    let groupMembers = [];
 
     // Handle group expenses
     if (groupId) {
@@ -143,7 +142,6 @@ const createExpense = async (req, res) => {
       if (!group.isMember(req.user._id)) {
         return res.status(403).json({ message: "Access denied." });
       }
-      groupMembers = group.members.map((member) => member.user);
     }
 
     // Determine participants for splitting
@@ -166,11 +164,9 @@ const createExpense = async (req, res) => {
           expenseParticipants.push(payer.user.toString());
         }
       });
-    } else {
+    } else if (!expenseParticipants.includes(req.user._id.toString())) {
       // If no paidByMultiple, ensure current user is included
-      if (!expenseParticipants.includes(req.user._id.toString())) {
-        expenseParticipants.push(req.user._id.toString());
-      }
+      expenseParticipants.push(req.user._id.toString());
     }
 
     // Debug: Log the paidByMultiple data
@@ -295,130 +291,6 @@ const getExpense = async (req, res) => {
   }
 };
 
-// Update expense
-const updateExpense = async (req, res) => {
-  try {
-    const { expenseId } = req.params;
-    const {
-      description,
-      amount,
-      category,
-      date,
-      splitType,
-      customSplits,
-      notes,
-    } = req.body;
-
-    const expense = await Expense.findById(expenseId);
-    if (!expense) {
-      return res.status(404).json({ message: "Expense not found." });
-    }
-
-    // Check if user is member of the group
-    const group = await Group.findById(expense.group);
-    if (!group.isMember(req.user._id)) {
-      return res.status(403).json({ message: "Access denied." });
-    }
-
-    // Update expense fields
-    if (description !== undefined) expense.description = description;
-    if (amount !== undefined) expense.amount = amount;
-    if (category !== undefined) expense.category = category;
-    if (date !== undefined) expense.date = new Date(date);
-    if (splitType !== undefined) expense.splitType = splitType;
-    if (notes !== undefined) expense.notes = notes;
-
-    // Recalculate splits if amount or split type changed
-    if (amount !== undefined || splitType !== undefined) {
-      if (splitType === "equal") {
-        const memberCount = group.members.length;
-        const splitAmount = expense.amount / memberCount;
-
-        expense.splits = group.members.map((member) => ({
-          user: member.user,
-          amount: splitAmount,
-          paid: member.user.toString() === req.user._id.toString(),
-        }));
-      } else if (splitType === "percentage" && customSplits) {
-        const totalPercentage = customSplits.reduce(
-          (sum, split) => sum + split.percentage,
-          0
-        );
-        if (Math.abs(totalPercentage - 100) > 0.01) {
-          return res
-            .status(400)
-            .json({ message: "Percentages must add up to 100%." });
-        }
-
-        expense.splits = customSplits.map((split) => ({
-          user: split.userId,
-          amount: (expense.amount * split.percentage) / 100,
-          paid: split.userId === req.user._id.toString(),
-        }));
-      } else if (splitType === "custom" && customSplits) {
-        const totalAmount = customSplits.reduce(
-          (sum, split) => sum + split.amount,
-          0
-        );
-        if (Math.abs(totalAmount - expense.amount) > 0.01) {
-          return res.status(400).json({
-            message:
-              "Custom split amounts must add up to the total expense amount.",
-          });
-        }
-
-        expense.splits = customSplits.map((split) => ({
-          user: split.userId,
-          amount: split.amount,
-          paid: split.userId === req.user._id.toString(),
-        }));
-      }
-    }
-
-    await expense.save();
-
-    // Populate expense data
-    await expense.populate([
-      { path: "paidBy", select: "username firstName lastName" },
-      { path: "group", select: "name" },
-      { path: "splits.user", select: "username firstName lastName" },
-    ]);
-
-    res.json({
-      message: "Expense updated successfully",
-      expense,
-    });
-  } catch (error) {
-    logger.error("Update expense error:", error);
-    res.status(500).json({ message: "Server error." });
-  }
-};
-
-// Delete expense
-const deleteExpense = async (req, res) => {
-  try {
-    const { expenseId } = req.params;
-
-    const expense = await Expense.findById(expenseId);
-    if (!expense) {
-      return res.status(404).json({ message: "Expense not found." });
-    }
-
-    // Check if user is member of the group
-    const group = await Group.findById(expense.group);
-    if (!group.isMember(req.user._id)) {
-      return res.status(403).json({ message: "Access denied." });
-    }
-
-    await Expense.findByIdAndDelete(expenseId);
-
-    res.json({ message: "Expense deleted successfully" });
-  } catch (error) {
-    logger.error("Delete expense error:", error);
-    res.status(500).json({ message: "Server error." });
-  }
-};
-
 // Mark split as paid
 const markSplitAsPaid = async (req, res) => {
   try {
@@ -509,6 +381,185 @@ const getExpenseSummary = async (req, res) => {
     res.json({ summary });
   } catch (error) {
     logger.error("Get expense summary error:", error);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
+// Update expense
+const updateExpense = async (req, res) => {
+  try {
+    const { expenseId } = req.params;
+    const {
+      description,
+      amount,
+      category,
+      date,
+      notes,
+      splitType,
+      customSplits = [],
+      paidByMultiple = [],
+      participants = [],
+    } = req.body;
+
+    // Find the expense
+    const expense = await Expense.findById(expenseId)
+      .populate("group", "members")
+      .populate("paidBy", "username firstName lastName");
+
+    if (!expense) {
+      return res.status(404).json({ message: "Expense not found." });
+    }
+
+    // Check if user has permission to edit this expense
+    const isOwner = expense.paidBy._id.toString() === req.user._id.toString();
+    const isGroupAdmin =
+      expense.group &&
+      expense.group.members.some(
+        (member) =>
+          member.user.toString() === req.user._id.toString() &&
+          member.role === "admin"
+      );
+
+    if (!isOwner && !isGroupAdmin) {
+      return res.status(403).json({ message: "Access denied." });
+    }
+
+    // Update basic fields
+    expense.description = description;
+    expense.amount = amount;
+    expense.category = category;
+    expense.date = new Date(date);
+    expense.notes = notes;
+    expense.splitType = splitType;
+
+    // Handle paidByMultiple
+    if (paidByMultiple && paidByMultiple.length > 0) {
+      expense.paidByMultiple = paidByMultiple.length > 1 ? paidByMultiple : [];
+      // Update primary payer
+      expense.paidBy = paidByMultiple[0].user;
+    }
+
+    // Determine participants for splitting
+    let expenseParticipants = [];
+    if (expense.group) {
+      expenseParticipants = expense.group.members.map((member) =>
+        member.user.toString()
+      );
+    } else if (participants.length > 0) {
+      expenseParticipants = participants;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "No participants specified for expense." });
+    }
+
+    // Ensure the person(s) who paid are always included in the split
+    if (paidByMultiple && paidByMultiple.length > 0) {
+      paidByMultiple.forEach((payer) => {
+        if (!expenseParticipants.includes(payer.user.toString())) {
+          expenseParticipants.push(payer.user.toString());
+        }
+      });
+    } else if (!expenseParticipants.includes(req.user._id.toString())) {
+      expenseParticipants.push(req.user._id.toString());
+    }
+
+    // Recalculate splits based on split type
+    if (splitType === "equal") {
+      const memberCount = expenseParticipants.length;
+      const splitAmount = amount / memberCount;
+
+      expense.splits = expenseParticipants.map((userId) => ({
+        user: userId,
+        amount: splitAmount,
+        isPaid: false,
+      }));
+    } else if (splitType === "percentage") {
+      const totalPercentage = customSplits.reduce(
+        (sum, split) => sum + split.percentage,
+        0
+      );
+      if (Math.abs(totalPercentage - 100) > 0.01) {
+        return res
+          .status(400)
+          .json({ message: "Percentages must add up to 100%." });
+      }
+
+      expense.splits = customSplits.map((split) => ({
+        user: split.userId,
+        amount: (amount * split.percentage) / 100,
+        percentage: split.percentage,
+        isPaid: false,
+      }));
+    } else if (splitType === "custom") {
+      const totalAmount = customSplits.reduce(
+        (sum, split) => sum + split.amount,
+        0
+      );
+      if (Math.abs(totalAmount - amount) > 0.01) {
+        return res.status(400).json({
+          message:
+            "Custom split amounts must add up to the total expense amount.",
+        });
+      }
+
+      expense.splits = customSplits.map((split) => ({
+        user: split.userId,
+        amount: split.amount,
+        isPaid: false,
+      }));
+    }
+
+    await expense.save();
+
+    // Populate the updated expense
+    await expense.populate([
+      { path: "paidBy", select: "username firstName lastName" },
+      { path: "paidByMultiple.user", select: "username firstName lastName" },
+      { path: "group", select: "name" },
+      { path: "splits.user", select: "username firstName lastName" },
+    ]);
+
+    res.json({ expense });
+  } catch (error) {
+    logger.error("Update expense error:", error);
+    res.status(500).json({ message: "Server error." });
+  }
+};
+
+// Delete expense
+const deleteExpense = async (req, res) => {
+  try {
+    const { expenseId } = req.params;
+
+    // Find the expense
+    const expense = await Expense.findById(expenseId)
+      .populate("group", "members")
+      .populate("paidBy", "username firstName lastName");
+
+    if (!expense) {
+      return res.status(404).json({ message: "Expense not found." });
+    }
+
+    // Check if user has permission to delete this expense
+    const isOwner = expense.paidBy._id.toString() === req.user._id.toString();
+    const isGroupAdmin =
+      expense.group &&
+      expense.group.members.some(
+        (member) =>
+          member.user.toString() === req.user._id.toString() &&
+          member.role === "admin"
+      );
+
+    if (!isOwner && !isGroupAdmin) {
+      return res.status(403).json({ message: "Access denied." });
+    }
+
+    await Expense.findByIdAndDelete(expenseId);
+
+    res.json({ message: "Expense deleted successfully." });
+  } catch (error) {
+    logger.error("Delete expense error:", error);
     res.status(500).json({ message: "Server error." });
   }
 };

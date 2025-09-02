@@ -17,6 +17,7 @@ import { Expense, Group } from "../types";
 import { formatCurrency } from "../utils/currency";
 import toast from "react-hot-toast";
 import AddExpenseModal from "../components/AddExpenseModal";
+import EditExpenseModal from "../components/EditExpenseModal";
 
 const Expenses: React.FC = () => {
   const { user } = useAuth();
@@ -26,6 +27,8 @@ const Expenses: React.FC = () => {
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   useEffect(() => {
     fetchExpenses();
@@ -39,7 +42,18 @@ const Expenses: React.FC = () => {
       if (selectedGroup) params.groupId = selectedGroup;
 
       const response = await expensesApi.getUserExpenses(params);
-      setExpenses(response.expenses);
+
+      // Remove duplicates and sort by date (latest first)
+      const uniqueExpenses = response.expenses.filter(
+        (expense, index, self) =>
+          index === self.findIndex((e) => e._id === expense._id)
+      );
+
+      const sortedExpenses = [...uniqueExpenses].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
+      setExpenses(sortedExpenses);
     } catch (error) {
       console.error("Error fetching expenses:", error);
       toast.error("Failed to load expenses");
@@ -99,6 +113,30 @@ const Expenses: React.FC = () => {
       month: "short",
       day: "numeric",
     });
+  };
+
+  const handleEditExpense = (expense: Expense) => {
+    setEditingExpense(expense);
+    setShowEditExpenseModal(true);
+  };
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      try {
+        await expensesApi.deleteExpense(expenseId);
+        toast.success("Expense deleted successfully");
+        fetchExpenses(); // Reload data
+      } catch (error: any) {
+        console.error("Delete expense error:", error);
+        toast.error(
+          error.response?.data?.message || "Failed to delete expense"
+        );
+      }
+    }
+  };
+
+  const handleExpenseUpdated = () => {
+    fetchExpenses(); // Reload data to show the updated expense
   };
 
   const filteredExpenses = expenses.filter((expense) => {
@@ -303,9 +341,7 @@ const Expenses: React.FC = () => {
               const userSplit = expense.splits.find(
                 (split) => split.user._id === user?._id
               );
-              const otherSplits = expense.splits.filter(
-                (split) => split.user._id !== user?._id
-              );
+              const allSplits = expense.splits;
               const isUserPayer = expense.paidBy._id === user?._id;
               const userOweAmount = userSplit?.amount || 0;
               const userPaidAmount = isUserPayer ? expense.amount : 0;
@@ -364,10 +400,18 @@ const Expenses: React.FC = () => {
                       </div>
 
                       <div className="flex space-x-2">
-                        <button className="p-2 text-gray-400 hover:text-primary-600 transition-colors">
+                        <button
+                          onClick={() => handleEditExpense(expense)}
+                          className="p-2 text-gray-400 hover:text-primary-600 transition-colors"
+                          title="Edit expense"
+                        >
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button className="p-2 text-gray-400 hover:text-danger-600 transition-colors">
+                        <button
+                          onClick={() => handleDeleteExpense(expense._id)}
+                          className="p-2 text-gray-400 hover:text-danger-600 transition-colors"
+                          title="Delete expense"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -444,11 +488,11 @@ const Expenses: React.FC = () => {
                     {/* Other Participants */}
                     <div>
                       <p className="font-medium text-gray-700 mb-2">
-                        Other participants:
+                        Participants:
                       </p>
                       <div className="space-y-1">
-                        {otherSplits.length > 0 ? (
-                          otherSplits.map((split) => (
+                        {allSplits.length > 0 ? (
+                          allSplits.map((split) => (
                             <div
                               key={split.user._id}
                               className="flex items-center justify-between text-xs"
@@ -494,6 +538,24 @@ const Expenses: React.FC = () => {
           setShowAddExpenseModal(false);
         }}
       />
+
+      {/* Edit Expense Modal */}
+      {editingExpense && (
+        <EditExpenseModal
+          isOpen={showEditExpenseModal}
+          onClose={() => {
+            setShowEditExpenseModal(false);
+            setEditingExpense(null);
+          }}
+          expense={editingExpense}
+          group={
+            editingExpense.group && typeof editingExpense.group === "object"
+              ? editingExpense.group
+              : null
+          }
+          onExpenseUpdated={handleExpenseUpdated}
+        />
+      )}
     </div>
   );
 };

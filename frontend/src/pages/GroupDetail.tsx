@@ -46,7 +46,18 @@ const GroupDetail: React.FC = () => {
         ]);
 
       setGroup(groupData);
-      setExpenses(expensesData.data || []);
+
+      // Remove duplicates and sort by date (latest first)
+      const uniqueExpenses = (expensesData.data || []).filter(
+        (expense, index, self) =>
+          index === self.findIndex((e) => e._id === expense._id)
+      );
+
+      const sortedExpenses = uniqueExpenses.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      setExpenses(sortedExpenses);
+
       setSettlements(settlementsData.settlements || []);
       setSummary(summaryData);
     } catch (err: any) {

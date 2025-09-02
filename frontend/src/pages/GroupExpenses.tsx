@@ -7,6 +7,8 @@ import {
   Calendar,
   Tag,
   DollarSign,
+  Edit,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { groupsApi, expensesApi } from "../services/api";
@@ -14,6 +16,7 @@ import { Group, Expense } from "../types";
 import { formatCurrency } from "../utils/currency";
 import toast from "react-hot-toast";
 import AddExpenseModal from "../components/AddExpenseModal";
+import EditExpenseModal from "../components/EditExpenseModal";
 
 const GroupExpenses: React.FC = () => {
   const { groupId } = useParams<{ groupId: string }>();
@@ -25,6 +28,8 @@ const GroupExpenses: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
   // Filtering and pagination states
   const [searchTerm, setSearchTerm] = useState("");
@@ -82,7 +87,18 @@ const GroupExpenses: React.FC = () => {
       if (endDate) params.endDate = endDate;
 
       const response = await expensesApi.getGroupExpenses(groupId, params);
-      setExpenses(response.data || []);
+
+      // Remove duplicates and sort by date (latest first)
+      const uniqueExpenses = (response.data || []).filter(
+        (expense, index, self) =>
+          index === self.findIndex((e) => e._id === expense._id)
+      );
+
+      const sortedExpenses = uniqueExpenses.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
+      setExpenses(sortedExpenses);
       setTotalPages(response.totalPages || 1);
       setTotalExpenses(response.total || 0);
     } catch (err: any) {
@@ -138,6 +154,30 @@ const GroupExpenses: React.FC = () => {
       day: "numeric",
       year: "numeric",
     });
+  };
+
+  const handleEditExpense = (expense: Expense) => {
+    setEditingExpense(expense);
+    setShowEditExpenseModal(true);
+  };
+
+  const handleDeleteExpense = async (expenseId: string) => {
+    if (window.confirm("Are you sure you want to delete this expense?")) {
+      try {
+        await expensesApi.deleteExpense(expenseId);
+        toast.success("Expense deleted successfully");
+        loadExpenses(); // Reload data
+      } catch (error: any) {
+        console.error("Delete expense error:", error);
+        toast.error(
+          error.response?.data?.message || "Failed to delete expense"
+        );
+      }
+    }
+  };
+
+  const handleExpenseUpdated = () => {
+    loadExpenses(); // Reload data to show the updated expense
   };
 
   const filteredExpenses = expenses.filter((expense) =>
@@ -303,9 +343,7 @@ const GroupExpenses: React.FC = () => {
               const userSplit = expense.splits.find(
                 (split) => split.user._id === user?._id
               );
-              const otherSplits = expense.splits.filter(
-                (split) => split.user._id !== user?._id
-              );
+              const allSplits = expense.splits;
 
               return (
                 <div key={expense._id} className="p-6">
@@ -333,12 +371,30 @@ const GroupExpenses: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-gray-900">
-                        {formatCurrency(expense.amount)}
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-gray-900">
+                          {formatCurrency(expense.amount)}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {expense.currency}
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-500">
-                        {expense.currency}
+                      <div className="flex space-x-1">
+                        <button
+                          onClick={() => handleEditExpense(expense)}
+                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Edit expense"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteExpense(expense._id)}
+                          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Delete expense"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -414,13 +470,13 @@ const GroupExpenses: React.FC = () => {
                   </div>
 
                   {/* Other Participants */}
-                  {otherSplits.length > 0 && (
+                  {allSplits.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-gray-100">
                       <p className="text-sm font-medium text-gray-700 mb-2">
-                        Other participants:
+                        Participants:
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {otherSplits.map((split) => (
+                        {allSplits.map((split) => (
                           <div
                             key={split.user._id}
                             className="flex items-center space-x-2 bg-gray-50 px-3 py-2 rounded-lg"
@@ -527,6 +583,20 @@ const GroupExpenses: React.FC = () => {
           onClose={() => setShowAddExpenseModal(false)}
           group={group}
           onExpenseAdded={handleExpenseAdded}
+        />
+      )}
+
+      {/* Edit Expense Modal */}
+      {editingExpense && (
+        <EditExpenseModal
+          isOpen={showEditExpenseModal}
+          onClose={() => {
+            setShowEditExpenseModal(false);
+            setEditingExpense(null);
+          }}
+          expense={editingExpense}
+          group={group}
+          onExpenseUpdated={handleExpenseUpdated}
         />
       )}
     </div>

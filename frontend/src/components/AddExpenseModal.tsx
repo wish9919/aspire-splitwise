@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Modal from "./Modal";
 import { expensesApi, authApi } from "../services/api";
 import { Group, User } from "../types";
+import { useAuth } from "../contexts/AuthContext";
 import toast from "react-hot-toast";
 import { Search, Plus, X, Users } from "lucide-react";
 
@@ -12,10 +13,7 @@ interface AddExpenseModalProps {
   onExpenseAdded: () => void;
 }
 
-interface PaidByUser {
-  user: User;
-  amount: number;
-}
+// Removed PaidByUser interface - using single payer now
 
 const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   isOpen,
@@ -23,11 +21,12 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   group,
   onExpenseAdded,
 }) => {
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
     category: "other",
-    date: new Date().toISOString().split("T")[0],
+    date: new Date().toISOString().slice(0, 16),
     notes: "",
     splitType: "equal",
   });
@@ -35,7 +34,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [customSplits, setCustomSplits] = useState<{
     [userId: string]: number;
   }>({});
-  const [paidByMultiple, setPaidByMultiple] = useState<PaidByUser[]>([]);
+  const [selectedPayer, setSelectedPayer] = useState<User | null>(null);
   const [participants, setParticipants] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -46,7 +45,10 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && user) {
+      // Initialize payer to current user
+      setSelectedPayer(user);
+
       // Initialize participants based on group or empty for non-group expenses
       if (group) {
         const groupMembers = group.members.map((member) => member.user);
@@ -66,7 +68,21 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       // Load all users for search
       loadAllUsers();
     }
-  }, [isOpen, group]);
+  }, [isOpen, group, user]);
+
+  // Ensure payer is included in participants when payer changes
+  useEffect(() => {
+    if (
+      selectedPayer &&
+      !participants.find((p) => p._id === selectedPayer._id)
+    ) {
+      setParticipants((prev) => [...prev, selectedPayer]);
+      setCustomSplits((prev) => ({
+        ...prev,
+        [selectedPayer._id]: 0,
+      }));
+    }
+  }, [selectedPayer]);
 
   const loadAllUsers = async () => {
     try {
@@ -133,25 +149,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     });
   };
 
-  const addPaidByUser = (user: User) => {
-    if (!paidByMultiple.find((p) => p.user._id === user._id)) {
-      setPaidByMultiple([...paidByMultiple, { user, amount: 0 }]);
-    }
+  const selectPayer = (user: User) => {
+    setSelectedPayer(user);
     setSearchTerm("");
     setSearchResults([]);
     setShowUserSearch(false);
-  };
-
-  const removePaidByUser = (userId: string) => {
-    setPaidByMultiple(paidByMultiple.filter((p) => p.user._id !== userId));
-  };
-
-  const updatePaidByAmount = (userId: string, amount: string) => {
-    setPaidByMultiple((prev) =>
-      prev.map((p) =>
-        p.user._id === userId ? { ...p, amount: parseFloat(amount) || 0 } : p
-      )
-    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -173,16 +175,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       return;
     }
 
-    // Validate paid by amounts
-    if (paidByMultiple.length > 0) {
-      const totalPaidAmount = paidByMultiple.reduce(
-        (sum, p) => sum + p.amount,
-        0
-      );
-      if (Math.abs(totalPaidAmount - amount) > 0.01) {
-        toast.error("Total paid amounts must equal the expense amount");
-        return;
-      }
+    if (!selectedPayer) {
+      toast.error("Please select a payer");
+      return;
     }
 
     if (formData.splitType === "custom") {
@@ -208,13 +203,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         notes: formData.notes,
         splitType: formData.splitType,
         participants: group ? undefined : participants.map((p) => p._id),
-        paidByMultiple:
-          paidByMultiple.length > 0
-            ? paidByMultiple.map((p) => ({
-                user: p.user._id,
-                amount: p.amount,
-              }))
-            : undefined,
+        paidByMultiple: selectedPayer
+          ? [{ user: selectedPayer._id, amount }]
+          : undefined,
         ...(formData.splitType === "custom" && {
           customSplits: Object.entries(customSplits).map(
             ([userId, amount]) => ({ userId, amount })
@@ -236,11 +227,11 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         description: "",
         amount: "",
         category: "other",
-        date: new Date().toISOString().split("T")[0],
+        date: new Date().toISOString().slice(0, 16),
         notes: "",
         splitType: "equal",
       });
-      setPaidByMultiple([]);
+      setSelectedPayer(null);
       setParticipants([]);
       setCustomSplits({});
     } catch (error: any) {
@@ -259,8 +250,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     { value: "other", label: "Other" },
   ];
 
-  const totalPaidAmount = paidByMultiple.reduce((sum, p) => sum + p.amount, 0);
-  const remainingAmount = parseFloat(formData.amount) - totalPaidAmount;
+  // Removed multiple payer calculations
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Expense" size="lg">
@@ -339,7 +329,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             Date *
           </label>
           <input
-            type="date"
+            type="datetime-local"
             id="date"
             name="date"
             value={formData.date}
@@ -358,49 +348,25 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             Paid By
           </label>
 
-          {/* Multiple Payers */}
-          {paidByMultiple.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {paidByMultiple.map((payer) => (
-                <div
-                  key={payer.user._id}
-                  className="flex items-center space-x-2"
-                >
-                  <span className="text-sm text-gray-700 flex-1">
-                    {payer.user.firstName} {payer.user.lastName}
-                  </span>
-                  <input
-                    type="number"
-                    value={payer.amount}
-                    onChange={(e) =>
-                      updatePaidByAmount(payer.user._id, e.target.value)
-                    }
-                    step="0.01"
-                    min="0"
-                    className="w-24 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="0.00"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removePaidByUser(payer.user._id)}
-                    className="p-1 text-red-500 hover:text-red-700"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <div className="text-xs text-gray-500">
-                Total Paid: LKR {totalPaidAmount.toFixed(2)}
-                {remainingAmount > 0 && (
-                  <span className="text-orange-600 ml-2">
-                    Remaining: LKR {remainingAmount.toFixed(2)}
-                  </span>
-                )}
-              </div>
+          {/* Single Payer Selection */}
+          {selectedPayer ? (
+            <div className="flex items-center space-x-2 mb-3">
+              <span className="text-sm text-gray-700 flex-1">
+                {selectedPayer.firstName} {selectedPayer.lastName}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedPayer(null)}
+                className="p-1 text-red-500 hover:text-red-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
+          ) : (
+            <div className="text-sm text-gray-500 mb-3">No payer selected</div>
           )}
 
-          {/* Add Payer Button */}
+          {/* Select Payer Button */}
           <button
             type="button"
             onClick={() => {
@@ -410,7 +376,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <Plus className="h-4 w-4" />
-            <span>Add Payer</span>
+            <span>{selectedPayer ? "Change Payer" : "Select Payer"}</span>
           </button>
 
           {/* User Search */}
@@ -434,7 +400,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                       type="button"
                       onClick={() => {
                         if (searchMode === "payer") {
-                          addPaidByUser(user);
+                          selectPayer(user);
                         } else {
                           addParticipant(user);
                         }

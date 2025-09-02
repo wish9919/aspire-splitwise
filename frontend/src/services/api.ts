@@ -208,7 +208,7 @@ export const expensesApi = {
 
   getExpense: async (expenseId: string): Promise<Expense> => {
     const response = await api.get<ApiResponse<Expense>>(
-      `/expenses/expenses/${expenseId}`
+      `/expenses/${expenseId}`
     );
     return response.data.expense || response.data.data;
   },
@@ -232,12 +232,8 @@ export const expensesApi = {
     return response.data;
   },
 
-  deleteExpense: async (expenseId: string): Promise<void> => {
-    await api.delete(`/expenses/${expenseId}`);
-  },
-
   markSplitAsPaid: async (expenseId: string, userId: string): Promise<void> => {
-    await api.put(`/expenses/expenses/${expenseId}/splits/${userId}/paid`);
+    await api.put(`/expenses/${expenseId}/splits/${userId}/paid`);
   },
 
   getExpenseSummary: async (groupId: string): Promise<any> => {
@@ -245,6 +241,10 @@ export const expensesApi = {
       `/expenses/groups/${groupId}/expenses/summary`
     );
     return response.data.summary || response.data.data;
+  },
+
+  deleteExpense: async (expenseId: string): Promise<void> => {
+    await api.delete(`/expenses/${expenseId}`);
   },
 };
 
