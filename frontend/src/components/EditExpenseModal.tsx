@@ -1,17 +1,8 @@
 import React, { useState, useEffect } from "react";
-import {
-  X,
-  DollarSign,
-  Calendar,
-  Tag,
-  Users,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
+import { X, DollarSign, Calendar, Tag, Plus, Trash2 } from "lucide-react";
 import { expensesApi } from "../services/api";
 import { Expense, Group, User, PaidByMultiple } from "../types";
-import { formatCurrency } from "../utils/currency";
+
 import toast from "react-hot-toast";
 
 interface EditExpenseModalProps {
@@ -29,7 +20,6 @@ const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   group,
   onExpenseUpdated,
 }) => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     description: "",

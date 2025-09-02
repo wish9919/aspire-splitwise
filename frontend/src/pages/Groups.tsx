@@ -3,13 +3,10 @@ import { Link } from "react-router-dom";
 import {
   Plus,
   Users,
-  Settings,
   MoreVertical,
-  Edit,
   Trash2,
   UserPlus,
   Calendar,
-  DollarSign,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { groupsApi, authApi } from "../services/api";

@@ -56,7 +56,7 @@ export const authApi = {
         password,
       }
     );
-    return response.data.data || response.data;
+    return (response.data as any).data || response.data;
   },
 
   register: async (
@@ -66,12 +66,12 @@ export const authApi = {
       "/auth/register",
       userData
     );
-    return response.data.data || response.data;
+    return (response.data as any).data || response.data;
   },
 
   getProfile: async (): Promise<User> => {
     const response = await api.get<ApiResponse<User>>("/auth/profile");
-    return response.data.user || response.data.data;
+    return (response.data as any).user || (response.data as any).data;
   },
 
   updateProfile: async (userData: Partial<User>): Promise<User> => {
@@ -79,7 +79,7 @@ export const authApi = {
       "/auth/profile",
       userData
     );
-    return response.data.user || response.data.data;
+    return (response.data as any).user || (response.data as any).data;
   },
 
   changePassword: async (
@@ -93,7 +93,7 @@ export const authApi = {
     const response = await api.get<ApiResponse<{ users: User[] }>>(
       "/auth/users"
     );
-    return response.data.users || response.data.data || [];
+    return (response.data as any).users || (response.data as any).data || [];
   },
 };
 
@@ -105,17 +105,17 @@ export const groupsApi = {
     currency?: string;
   }): Promise<Group> => {
     const response = await api.post<ApiResponse<Group>>("/groups", groupData);
-    return response.data.group || response.data.data;
+    return (response.data as any).group || (response.data as any).data;
   },
 
   getUserGroups: async (): Promise<Group[]> => {
     const response = await api.get<ApiResponse<Group[]>>("/groups");
-    return response.data.groups || response.data.data;
+    return (response.data as any).groups || (response.data as any).data;
   },
 
   getGroup: async (groupId: string): Promise<Group> => {
     const response = await api.get<ApiResponse<Group>>(`/groups/${groupId}`);
-    return response.data.group || response.data.data;
+    return (response.data as any).group || (response.data as any).data;
   },
 
   updateGroup: async (
@@ -126,7 +126,7 @@ export const groupsApi = {
       `/groups/${groupId}`,
       groupData
     );
-    return response.data.group || response.data.data;
+    return (response.data as any).group || (response.data as any).data;
   },
 
   deleteGroup: async (groupId: string): Promise<void> => {
@@ -142,7 +142,7 @@ export const groupsApi = {
       `/groups/${groupId}/members`,
       { email, role }
     );
-    return response.data.group || response.data.data;
+    return (response.data as any).group || (response.data as any).data;
   },
 
   removeMember: async (groupId: string, userId: string): Promise<void> => {
@@ -167,7 +167,7 @@ export const expensesApi = {
       "/expenses",
       { params }
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   createExpense: async (expenseData: {
@@ -186,7 +186,7 @@ export const expensesApi = {
       "/expenses",
       expenseData
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   getGroupExpenses: async (
@@ -210,7 +210,7 @@ export const expensesApi = {
     const response = await api.get<ApiResponse<Expense>>(
       `/expenses/${expenseId}`
     );
-    return response.data.expense || response.data.data;
+    return (response.data as any).expense || (response.data as any).data;
   },
 
   updateExpense: async (
@@ -229,7 +229,7 @@ export const expensesApi = {
       `/expenses/${expenseId}`,
       expenseData
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   markSplitAsPaid: async (expenseId: string, userId: string): Promise<void> => {
@@ -240,7 +240,7 @@ export const expensesApi = {
     const response = await api.get<ApiResponse<any>>(
       `/expenses/groups/${groupId}/expenses/summary`
     );
-    return response.data.summary || response.data.data;
+    return (response.data as any).summary || (response.data as any).data;
   },
 
   deleteExpense: async (expenseId: string): Promise<void> => {
@@ -254,7 +254,7 @@ export const settlementsApi = {
     const response = await api.get<ApiResponse<Settlement[]>>(
       `/settlements/groups/${groupId}/settlements/calculate`
     );
-    return response.data.settlements || response.data.data;
+    return (response.data as any).settlements || (response.data as any).data;
   },
 
   getGroupSettlements: async (
@@ -265,7 +265,7 @@ export const settlementsApi = {
       `/settlements/group/${groupId}`,
       { params }
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   getUserSettlements: async (params?: {
@@ -276,7 +276,7 @@ export const settlementsApi = {
       "/settlements",
       { params }
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   createSettlement: async (settlementData: {
@@ -290,7 +290,7 @@ export const settlementsApi = {
       "/settlements",
       settlementData
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   updateSettlementStatus: async (
@@ -301,7 +301,7 @@ export const settlementsApi = {
       `/settlements/${settlementId}`,
       statusData
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 
   deleteSettlement: async (settlementId: string): Promise<void> => {
@@ -315,7 +315,7 @@ export const settlementsApi = {
       "/settlements/stats",
       { params }
     );
-    return response.data;
+    return (response.data as any).data || response.data;
   },
 };
 

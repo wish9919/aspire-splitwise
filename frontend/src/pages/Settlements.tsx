@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from "react";
 import {
   CreditCard,
-  Plus,
   CheckCircle,
   Clock,
   XCircle,
   DollarSign,
-  Users,
-  TrendingUp,
   Filter,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -308,8 +305,7 @@ const Settlements: React.FC = () => {
                         )}
                       </p>
                       <p className="text-sm text-gray-500">
-                        {settlement.group.name} •{" "}
-                        {formatDate(settlement.createdAt)}
+                        {settlement.group} • {formatDate(settlement.createdAt)}
                       </p>
                     </div>
                   </div>

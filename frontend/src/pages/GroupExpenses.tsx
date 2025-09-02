@@ -94,7 +94,7 @@ const GroupExpenses: React.FC = () => {
           index === self.findIndex((e) => e._id === expense._id)
       );
 
-      const sortedExpenses = uniqueExpenses.sort(
+      const sortedExpenses = [...uniqueExpenses].sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
 
