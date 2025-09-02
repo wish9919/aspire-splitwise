@@ -13,6 +13,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Groups from "./pages/Groups";
 import GroupDetail from "./pages/GroupDetail";
+import GroupExpenses from "./pages/GroupExpenses";
 import Expenses from "./pages/Expenses";
 import Settlements from "./pages/Settlements";
 import Profile from "./pages/Profile";
@@ -111,6 +112,10 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="groups" element={<Groups />} />
               <Route path="groups/:groupId" element={<GroupDetail />} />
+              <Route
+                path="groups/:groupId/expenses"
+                element={<GroupExpenses />}
+              />
               <Route path="expenses" element={<Expenses />} />
               <Route path="settlements" element={<Settlements />} />
               <Route path="profile" element={<Profile />} />

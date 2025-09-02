@@ -92,6 +92,7 @@ const getGroupExpenses = async (req, res) => {
 
     const expenses = await Expense.find(query)
       .populate("paidBy", "username firstName lastName")
+      .populate("paidByMultiple.user", "username firstName lastName")
       .populate("group", "name")
       .populate("splits.user", "username firstName lastName")
       .sort({ date: -1 })
@@ -157,20 +158,38 @@ const createExpense = async (req, res) => {
         .json({ message: "No participants specified for expense." });
     }
 
-    // Ensure the person who paid is always included in the split
-    if (!expenseParticipants.includes(req.user._id.toString())) {
-      expenseParticipants.push(req.user._id.toString());
+    // Ensure the person(s) who paid are always included in the split
+    if (paidByMultiple && paidByMultiple.length > 0) {
+      // Add all payers from paidByMultiple
+      paidByMultiple.forEach((payer) => {
+        if (!expenseParticipants.includes(payer.user.toString())) {
+          expenseParticipants.push(payer.user.toString());
+        }
+      });
+    } else {
+      // If no paidByMultiple, ensure current user is included
+      if (!expenseParticipants.includes(req.user._id.toString())) {
+        expenseParticipants.push(req.user._id.toString());
+      }
     }
 
     // Debug: Log the paidByMultiple data
     console.log("paidByMultiple received:", paidByMultiple);
+
+    // Determine the primary payer
+    let primaryPayer = req.user._id; // Default to current user
+    if (paidByMultiple && paidByMultiple.length > 0) {
+      // If there are multiple payers, use the first one as primary
+      // If there's only one payer, use that person
+      primaryPayer = paidByMultiple[0].user;
+    }
 
     // Create expense
     const expense = new Expense({
       description,
       amount,
       group: groupId || null,
-      paidBy: req.user._id,
+      paidBy: primaryPayer,
       paidByMultiple:
         paidByMultiple && paidByMultiple.length > 1 ? paidByMultiple : [],
       category,
