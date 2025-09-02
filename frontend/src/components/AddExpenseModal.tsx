@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from "react";
 import Modal from "./Modal";
-import { expensesApi } from "../services/api";
-import { Group } from "../types";
+import { expensesApi, authApi } from "../services/api";
+import { Group, User } from "../types";
 import toast from "react-hot-toast";
+import { Search, Plus, X, Users } from "lucide-react";
 
 interface AddExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
-  group: Group;
+  group?: Group;
   onExpenseAdded: () => void;
+}
+
+interface PaidByUser {
+  user: User;
+  amount: number;
 }
 
 const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
@@ -29,18 +35,47 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [customSplits, setCustomSplits] = useState<{
     [userId: string]: number;
   }>({});
+  const [paidByMultiple, setPaidByMultiple] = useState<PaidByUser[]>([]);
+  const [participants, setParticipants] = useState<User[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [showUserSearch, setShowUserSearch] = useState(false);
+  const [searchMode, setSearchMode] = useState<"payer" | "participant">(
+    "payer"
+  );
+  const [allUsers, setAllUsers] = useState<User[]>([]);
 
   useEffect(() => {
     if (isOpen) {
-      // Initialize custom splits with equal amounts
-      const equalAmount = 0;
-      const initialSplits: { [userId: string]: number } = {};
-      group.members.forEach((member) => {
-        initialSplits[member.user._id] = equalAmount;
-      });
-      setCustomSplits(initialSplits);
+      // Initialize participants based on group or empty for non-group expenses
+      if (group) {
+        const groupMembers = group.members.map((member) => member.user);
+        setParticipants(groupMembers);
+        // Initialize custom splits with equal amounts
+        const equalAmount = 0;
+        const initialSplits: { [userId: string]: number } = {};
+        groupMembers.forEach((member) => {
+          initialSplits[member._id] = equalAmount;
+        });
+        setCustomSplits(initialSplits);
+      } else {
+        setParticipants([]);
+        setCustomSplits({});
+      }
+
+      // Load all users for search
+      loadAllUsers();
     }
-  }, [isOpen, group.members]);
+  }, [isOpen, group]);
+
+  const loadAllUsers = async () => {
+    try {
+      const users = await authApi.getAllUsers();
+      setAllUsers(users);
+    } catch (error) {
+      console.error("Error loading users:", error);
+    }
+  };
 
   const handleInputChange = (
     e: React.ChangeEvent<
@@ -61,6 +96,64 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     }));
   };
 
+  const handleSearchUsers = (term: string) => {
+    setSearchTerm(term);
+    if (term.length > 0) {
+      const filtered = allUsers.filter(
+        (user) =>
+          user.firstName.toLowerCase().includes(term.toLowerCase()) ||
+          user.lastName.toLowerCase().includes(term.toLowerCase()) ||
+          user.email.toLowerCase().includes(term.toLowerCase())
+      );
+      setSearchResults(filtered);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
+  const addParticipant = (user: User) => {
+    if (!participants.find((p) => p._id === user._id)) {
+      setParticipants([...participants, user]);
+      setCustomSplits((prev) => ({
+        ...prev,
+        [user._id]: 0,
+      }));
+    }
+    setSearchTerm("");
+    setSearchResults([]);
+    setShowUserSearch(false);
+  };
+
+  const removeParticipant = (userId: string) => {
+    setParticipants(participants.filter((p) => p._id !== userId));
+    setCustomSplits((prev) => {
+      const newSplits = { ...prev };
+      delete newSplits[userId];
+      return newSplits;
+    });
+  };
+
+  const addPaidByUser = (user: User) => {
+    if (!paidByMultiple.find((p) => p.user._id === user._id)) {
+      setPaidByMultiple([...paidByMultiple, { user, amount: 0 }]);
+    }
+    setSearchTerm("");
+    setSearchResults([]);
+    setShowUserSearch(false);
+  };
+
+  const removePaidByUser = (userId: string) => {
+    setPaidByMultiple(paidByMultiple.filter((p) => p.user._id !== userId));
+  };
+
+  const updatePaidByAmount = (userId: string, amount: string) => {
+    setPaidByMultiple((prev) =>
+      prev.map((p) =>
+        p.user._id === userId ? { ...p, amount: parseFloat(amount) || 0 } : p
+      )
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -73,6 +166,23 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     if (isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount");
       return;
+    }
+
+    if (participants.length === 0) {
+      toast.error("Please add at least one participant");
+      return;
+    }
+
+    // Validate paid by amounts
+    if (paidByMultiple.length > 0) {
+      const totalPaidAmount = paidByMultiple.reduce(
+        (sum, p) => sum + p.amount,
+        0
+      );
+      if (Math.abs(totalPaidAmount - amount) > 0.01) {
+        toast.error("Total paid amounts must equal the expense amount");
+        return;
+      }
     }
 
     if (formData.splitType === "custom") {
@@ -92,17 +202,28 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       const expenseData = {
         description: formData.description,
         amount,
-        groupId: group._id,
+        groupId: group?._id,
         category: formData.category,
         date: formData.date,
         notes: formData.notes,
         splitType: formData.splitType,
+        participants: group ? undefined : participants.map((p) => p._id),
+        paidByMultiple:
+          paidByMultiple.length > 0
+            ? paidByMultiple.map((p) => ({
+                user: p.user._id,
+                amount: p.amount,
+              }))
+            : undefined,
         ...(formData.splitType === "custom" && {
           customSplits: Object.entries(customSplits).map(
             ([userId, amount]) => ({ userId, amount })
           ),
         }),
       };
+
+      // Debug: Log the expense data being sent
+      console.log("Expense data being sent:", expenseData);
 
       await expensesApi.createExpense(expenseData);
 
@@ -119,6 +240,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         notes: "",
         splitType: "equal",
       });
+      setPaidByMultiple([]);
+      setParticipants([]);
+      setCustomSplits({});
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Failed to add expense");
     } finally {
@@ -134,6 +258,9 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     { value: "bills", label: "Bills & Utilities" },
     { value: "other", label: "Other" },
   ];
+
+  const totalPaidAmount = paidByMultiple.reduce((sum, p) => sum + p.amount, 0);
+  const remainingAmount = parseFloat(formData.amount) - totalPaidAmount;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Expense" size="lg">
@@ -165,7 +292,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               htmlFor="amount"
               className="block text-sm font-medium text-gray-700 mb-2"
             >
-              Amount ({group.currency}) *
+              Amount (LKR) *
             </label>
             <input
               type="number"
@@ -209,7 +336,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             htmlFor="date"
             className="block text-sm font-medium text-gray-700 mb-2"
           >
-            Date
+            Date *
           </label>
           <input
             type="date"
@@ -218,8 +345,156 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
             value={formData.date}
             onChange={handleInputChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            required
           />
         </div>
+
+        {/* Paid By Section */}
+        <div>
+          <label
+            htmlFor="paid-by-section"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Paid By
+          </label>
+
+          {/* Multiple Payers */}
+          {paidByMultiple.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {paidByMultiple.map((payer) => (
+                <div
+                  key={payer.user._id}
+                  className="flex items-center space-x-2"
+                >
+                  <span className="text-sm text-gray-700 flex-1">
+                    {payer.user.firstName} {payer.user.lastName}
+                  </span>
+                  <input
+                    type="number"
+                    value={payer.amount}
+                    onChange={(e) =>
+                      updatePaidByAmount(payer.user._id, e.target.value)
+                    }
+                    step="0.01"
+                    min="0"
+                    className="w-24 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="0.00"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePaidByUser(payer.user._id)}
+                    className="p-1 text-red-500 hover:text-red-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="text-xs text-gray-500">
+                Total Paid: LKR {totalPaidAmount.toFixed(2)}
+                {remainingAmount > 0 && (
+                  <span className="text-orange-600 ml-2">
+                    Remaining: LKR {remainingAmount.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Add Payer Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchMode("payer");
+              setShowUserSearch(true);
+            }}
+            className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Payer</span>
+          </button>
+
+          {/* User Search */}
+          {showUserSearch && (
+            <div className="mt-2 border border-gray-300 rounded-lg p-3">
+              <div className="relative">
+                <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={searchTerm}
+                  onChange={(e) => handleSearchUsers(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              {searchResults.length > 0 && (
+                <div className="mt-2 max-h-32 overflow-y-auto">
+                  {searchResults.map((user) => (
+                    <button
+                      key={user._id}
+                      type="button"
+                      onClick={() => {
+                        if (searchMode === "payer") {
+                          addPaidByUser(user);
+                        } else {
+                          addParticipant(user);
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded text-sm"
+                    >
+                      {user.firstName} {user.lastName} ({user.email})
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Participants Section (for non-group expenses) */}
+        {!group && (
+          <div>
+            <label
+              htmlFor="participants-section"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Participants *
+            </label>
+
+            {participants.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {participants.map((participant) => (
+                  <div
+                    key={participant._id}
+                    className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                  >
+                    <span className="text-sm text-gray-700">
+                      {participant.firstName} {participant.lastName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeParticipant(participant._id)}
+                      className="p-1 text-red-500 hover:text-red-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchMode("participant");
+                setShowUserSearch(true);
+              }}
+              className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Users className="h-4 w-4" />
+              <span>Add Participant</span>
+            </button>
+          </div>
+        )}
 
         {/* Split Type */}
         <div>
@@ -254,19 +529,19 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               id="custom-splits"
               className="space-y-2 max-h-40 overflow-y-auto"
             >
-              {group.members.map((member) => (
+              {participants.map((participant) => (
                 <div
-                  key={member.user._id}
+                  key={participant._id}
                   className="flex items-center justify-between"
                 >
                   <span className="text-sm text-gray-700">
-                    {member.user.firstName} {member.user.lastName}
+                    {participant.firstName} {participant.lastName}
                   </span>
                   <input
                     type="number"
-                    value={customSplits[member.user._id] || 0}
+                    value={customSplits[participant._id] || 0}
                     onChange={(e) =>
-                      handleCustomSplitChange(member.user._id, e.target.value)
+                      handleCustomSplitChange(participant._id, e.target.value)
                     }
                     step="0.01"
                     min="0"
@@ -276,7 +551,7 @@ const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
               ))}
             </div>
             <div className="text-xs text-gray-500 mt-1">
-              Total: {group.currency}{" "}
+              Total: LKR{" "}
               {Object.values(customSplits)
                 .reduce((sum, amount) => sum + amount, 0)
                 .toFixed(2)}

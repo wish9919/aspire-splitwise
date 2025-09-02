@@ -11,22 +11,20 @@ import {
   Calendar,
   Tag,
 } from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
 import { expensesApi, groupsApi } from "../services/api";
 import { Expense, Group } from "../types";
 import { formatCurrency } from "../utils/currency";
 import toast from "react-hot-toast";
+import AddExpenseModal from "../components/AddExpenseModal";
 
 const Expenses: React.FC = () => {
-  const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
 
   // Quick add form state
   const [quickAddForm, setQuickAddForm] = useState({
@@ -34,18 +32,6 @@ const Expenses: React.FC = () => {
     amount: "",
     groupId: "",
     category: "food",
-  });
-
-  // Full create/edit form state
-  const [expenseForm, setExpenseForm] = useState({
-    description: "",
-    amount: "",
-    groupId: "",
-    category: "food",
-    date: new Date().toISOString().split("T")[0],
-    splitType: "equal" as "equal" | "percentage" | "custom",
-    customSplits: [] as { userId: string; amount: number }[],
-    notes: "",
   });
 
   useEffect(() => {
@@ -171,8 +157,11 @@ const Expenses: React.FC = () => {
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-white p-6 rounded-lg shadow">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="bg-white p-6 rounded-lg shadow"
+              >
                 <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
                 <div className="h-8 bg-gray-200 rounded w-16"></div>
               </div>
@@ -203,20 +192,7 @@ const Expenses: React.FC = () => {
               <span>Quick Add</span>
             </button>
             <button
-              onClick={() => {
-                setEditingExpense(null);
-                setExpenseForm({
-                  description: "",
-                  amount: "",
-                  groupId: "",
-                  category: "food",
-                  date: new Date().toISOString().split("T")[0],
-                  splitType: "equal",
-                  customSplits: [],
-                  notes: "",
-                });
-                setShowCreateModal(true);
-              }}
+              onClick={() => setShowAddExpenseModal(true)}
               className="px-4 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 transition-colors flex items-center space-x-2"
             >
               <Plus className="h-4 w-4" />
@@ -363,7 +339,11 @@ const Expenses: React.FC = () => {
                       <div className="flex items-center space-x-4 text-sm text-gray-500">
                         <span className="flex items-center space-x-1">
                           <Users className="h-4 w-4" />
-                          <span>{expense.group.name}</span>
+                          <span>
+                            {typeof expense.group === "object"
+                              ? expense.group.name
+                              : "No Group"}
+                          </span>
                         </span>
                         <span className="flex items-center space-x-1">
                           <Calendar className="h-4 w-4" />
@@ -417,10 +397,14 @@ const Expenses: React.FC = () => {
             <form onSubmit={handleQuickAdd}>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="quick-description"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Description
                   </label>
                   <input
+                    id="quick-description"
                     type="text"
                     value={quickAddForm.description}
                     onChange={(e) =>
@@ -436,10 +420,14 @@ const Expenses: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="quick-amount"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Amount (LKR)
                   </label>
                   <input
+                    id="quick-amount"
                     type="number"
                     step="0.01"
                     value={quickAddForm.amount}
@@ -456,10 +444,14 @@ const Expenses: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="quick-group"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Group
                   </label>
                   <select
+                    id="quick-group"
                     value={quickAddForm.groupId}
                     onChange={(e) =>
                       setQuickAddForm({
@@ -480,10 +472,14 @@ const Expenses: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label
+                    htmlFor="quick-category"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
                     Category
                   </label>
                   <select
+                    id="quick-category"
                     value={quickAddForm.category}
                     onChange={(e) =>
                       setQuickAddForm({
@@ -524,6 +520,16 @@ const Expenses: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Add Expense Modal */}
+      <AddExpenseModal
+        isOpen={showAddExpenseModal}
+        onClose={() => setShowAddExpenseModal(false)}
+        onExpenseAdded={() => {
+          fetchExpenses();
+          setShowAddExpenseModal(false);
+        }}
+      />
     </div>
   );
 };

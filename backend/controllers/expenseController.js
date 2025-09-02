@@ -16,8 +16,22 @@ const getUserExpenses = async (req, res) => {
 
     const groupIds = userGroups.map((group) => group._id);
 
-    // Find expenses in user's groups
-    query.group = { $in: groupIds };
+    // Find expenses where user is involved (either in groups or as participant in non-group expenses)
+    query.$or = [
+      { group: { $in: groupIds } }, // Group expenses
+      {
+        $and: [
+          { group: null }, // Non-group expenses
+          {
+            $or: [
+              { paidBy: req.user._id }, // User paid
+              { "paidByMultiple.user": req.user._id }, // User is in paidByMultiple
+              { "splits.user": req.user._id }, // User is in splits
+            ],
+          },
+        ],
+      },
+    ];
 
     if (groupId) {
       // Check if user is member of the specified group
@@ -25,7 +39,7 @@ const getUserExpenses = async (req, res) => {
       if (!group || !group.isMember(req.user._id)) {
         return res.status(403).json({ message: "Access denied." });
       }
-      query.group = groupId;
+      query.$or = [{ group: groupId }];
     }
 
     if (category) query.category = category;
@@ -37,6 +51,7 @@ const getUserExpenses = async (req, res) => {
 
     const expenses = await Expense.find(query)
       .populate("paidBy", "username firstName lastName")
+      .populate("paidByMultiple.user", "username firstName lastName")
       .populate("group", "name")
       .populate("splits.user", "username firstName lastName")
       .sort({ date: -1 });
@@ -110,24 +125,49 @@ const createExpense = async (req, res) => {
       splitType = "equal",
       customSplits = [],
       notes = "",
+      paidByMultiple = [],
+      participants = [], // For non-group expenses
     } = req.body;
 
-    // Check if user is member of the group
-    const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: "Group not found." });
+    let group = null;
+    let groupMembers = [];
+
+    // Handle group expenses
+    if (groupId) {
+      group = await Group.findById(groupId);
+      if (!group) {
+        return res.status(404).json({ message: "Group not found." });
+      }
+
+      if (!group.isMember(req.user._id)) {
+        return res.status(403).json({ message: "Access denied." });
+      }
+      groupMembers = group.members.map((member) => member.user);
     }
 
-    if (!group.isMember(req.user._id)) {
-      return res.status(403).json({ message: "Access denied." });
+    // Determine participants for splitting
+    let expenseParticipants = [];
+    if (groupId && group) {
+      expenseParticipants = group.members.map((member) => member.user);
+    } else if (participants.length > 0) {
+      expenseParticipants = participants;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "No participants specified for expense." });
     }
+
+    // Debug: Log the paidByMultiple data
+    console.log("paidByMultiple received:", paidByMultiple);
 
     // Create expense
     const expense = new Expense({
       description,
       amount,
-      group: groupId,
+      group: groupId || null,
       paidBy: req.user._id,
+      paidByMultiple:
+        paidByMultiple && paidByMultiple.length > 0 ? paidByMultiple : [],
       category,
       date: new Date(date),
       splitType,
@@ -137,13 +177,13 @@ const createExpense = async (req, res) => {
 
     // Calculate splits based on split type
     if (splitType === "equal") {
-      const memberCount = group.members.length;
+      const memberCount = expenseParticipants.length;
       const splitAmount = amount / memberCount;
 
-      expense.splits = group.members.map((member) => ({
-        user: member.user,
+      expense.splits = expenseParticipants.map((userId) => ({
+        user: userId,
         amount: splitAmount,
-        paid: member.user.toString() === req.user._id.toString(),
+        isPaid: false,
       }));
     } else if (splitType === "percentage") {
       // For percentage splits, customSplits should contain percentage values
@@ -160,7 +200,8 @@ const createExpense = async (req, res) => {
       expense.splits = customSplits.map((split) => ({
         user: split.userId,
         amount: (amount * split.percentage) / 100,
-        paid: split.userId === req.user._id.toString(),
+        percentage: split.percentage,
+        isPaid: false,
       }));
     } else if (splitType === "custom") {
       // For custom splits, customSplits should contain exact amounts
@@ -178,7 +219,8 @@ const createExpense = async (req, res) => {
       expense.splits = customSplits.map((split) => ({
         user: split.userId,
         amount: split.amount,
-        paid: split.userId === req.user._id.toString(),
+        percentage: (split.amount / amount) * 100,
+        isPaid: false,
       }));
     }
 
@@ -187,6 +229,7 @@ const createExpense = async (req, res) => {
     // Populate expense data
     await expense.populate([
       { path: "paidBy", select: "username firstName lastName" },
+      { path: "paidByMultiple.user", select: "username firstName lastName" },
       { path: "group", select: "name" },
       { path: "splits.user", select: "username firstName lastName" },
     ]);

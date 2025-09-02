@@ -32,7 +32,8 @@ export interface Expense {
   amount: number;
   currency: string;
   paidBy: User;
-  group: string;
+  paidByMultiple?: PaidByMultiple[];
+  group?: string | Group;
   category:
     | "food"
     | "transport"
@@ -47,6 +48,11 @@ export interface Expense {
   receipt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PaidByMultiple {
+  user: User;
+  amount: number;
 }
 
 export interface ExpenseSplit {

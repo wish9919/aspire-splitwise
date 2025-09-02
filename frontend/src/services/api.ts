@@ -5,7 +5,6 @@ import {
   Expense,
   Settlement,
   RegisterData,
-  LoginData,
   ApiResponse,
   PaginatedResponse,
 } from "../types";
@@ -174,12 +173,14 @@ export const expensesApi = {
   createExpense: async (expenseData: {
     description: string;
     amount: number;
-    groupId: string;
+    groupId?: string;
     category?: string;
     date?: string;
     notes?: string;
     splitType?: string;
     customSplits?: any[];
+    paidByMultiple?: { user: string; amount: number }[];
+    participants?: string[];
   }): Promise<{ expense: Expense }> => {
     const response = await api.post<ApiResponse<{ expense: Expense }>>(
       "/expenses",

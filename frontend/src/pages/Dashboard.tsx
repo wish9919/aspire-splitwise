@@ -3,12 +3,9 @@ import { Link } from "react-router-dom";
 import {
   Users,
   Receipt,
-  DollarSign,
-  TrendingUp,
   Plus,
   ArrowUpRight,
   ArrowDownRight,
-  Calendar,
   CreditCard,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -16,6 +13,7 @@ import { groupsApi, expensesApi, settlementsApi } from "../services/api";
 import { Group, Expense, Settlement } from "../types";
 import { formatCurrency } from "../utils/currency";
 import toast from "react-hot-toast";
+import AddExpenseModal from "../components/AddExpenseModal";
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -23,6 +21,7 @@ const Dashboard: React.FC = () => {
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
   const [stats, setStats] = useState({
     totalGroups: 0,
     totalExpenses: 0,
@@ -59,7 +58,7 @@ const Dashboard: React.FC = () => {
       }
 
       // Sort by date and take most recent
-      const sortedExpenses = allExpenses
+      const sortedExpenses = [...allExpenses]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 5);
       setRecentExpenses(sortedExpenses);
@@ -119,8 +118,11 @@ const Dashboard: React.FC = () => {
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-48 mb-6"></div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-white p-6 rounded-lg shadow">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="bg-white p-6 rounded-lg shadow"
+              >
                 <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
                 <div className="h-8 bg-gray-200 rounded w-16"></div>
               </div>
@@ -143,13 +145,22 @@ const Dashboard: React.FC = () => {
             Here's what's happening with your expenses
           </p>
         </div>
-        <Link
-          to="/groups"
-          className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Create Group
-        </Link>
+        <div className="flex space-x-3">
+          <button
+            onClick={() => setShowAddExpenseModal(true)}
+            className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Expense
+          </button>
+          <Link
+            to="/groups"
+            className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Group
+          </Link>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -378,6 +389,16 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Add Expense Modal */}
+      <AddExpenseModal
+        isOpen={showAddExpenseModal}
+        onClose={() => setShowAddExpenseModal(false)}
+        onExpenseAdded={() => {
+          fetchDashboardData();
+          setShowAddExpenseModal(false);
+        }}
+      />
     </div>
   );
 };

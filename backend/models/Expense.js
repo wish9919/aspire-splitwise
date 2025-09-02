@@ -20,10 +20,24 @@ const expenseSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+  paidByMultiple: [
+    {
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
+      amount: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+    },
+  ],
   group: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Group",
-    required: true,
+    required: false, // Make group optional for non-group expenses
   },
   category: {
     type: String,
