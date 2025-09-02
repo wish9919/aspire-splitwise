@@ -11,6 +11,7 @@ import {
   Calendar,
   Tag,
 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 import { expensesApi, groupsApi } from "../services/api";
 import { Expense, Group } from "../types";
 import { formatCurrency } from "../utils/currency";
@@ -18,21 +19,13 @@ import toast from "react-hot-toast";
 import AddExpenseModal from "../components/AddExpenseModal";
 
 const Expenses: React.FC = () => {
+  const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [showAddExpenseModal, setShowAddExpenseModal] = useState(false);
-
-  // Quick add form state
-  const [quickAddForm, setQuickAddForm] = useState({
-    description: "",
-    amount: "",
-    groupId: "",
-    category: "food",
-  });
 
   useEffect(() => {
     fetchExpenses();
@@ -61,43 +54,6 @@ const Expenses: React.FC = () => {
       setGroups(userGroups);
     } catch (error) {
       console.error("Error fetching groups:", error);
-    }
-  };
-
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (
-      !quickAddForm.description ||
-      !quickAddForm.amount ||
-      !quickAddForm.groupId
-    ) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-
-    try {
-      const expenseData = {
-        description: quickAddForm.description,
-        amount: parseFloat(quickAddForm.amount),
-        groupId: quickAddForm.groupId,
-        category: quickAddForm.category,
-        date: new Date().toISOString(),
-        splitType: "equal" as const,
-        notes: "",
-      };
-
-      await expensesApi.createExpense(expenseData);
-      await fetchExpenses();
-      setQuickAddForm({
-        description: "",
-        amount: "",
-        groupId: "",
-        category: "food",
-      });
-      setShowQuickAdd(false);
-      toast.success("Expense added successfully!");
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to add expense");
     }
   };
 
@@ -145,11 +101,30 @@ const Expenses: React.FC = () => {
     });
   };
 
-  const filteredExpenses = expenses.filter(
-    (expense) =>
+  const filteredExpenses = expenses.filter((expense) => {
+    // Filter by group
+    if (selectedGroup === "no-group") {
+      // Show only non-group expenses
+      if (expense.group && typeof expense.group === "object") {
+        return false;
+      }
+    } else if (selectedGroup) {
+      // Show only expenses from selected group
+      if (
+        !expense.group ||
+        (typeof expense.group === "object" &&
+          expense.group._id !== selectedGroup)
+      ) {
+        return false;
+      }
+    }
+
+    // Filter by search term
+    return (
       expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       expense.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    );
+  });
 
   if (loading) {
     return (
@@ -185,15 +160,8 @@ const Expenses: React.FC = () => {
           </div>
           <div className="flex space-x-3">
             <button
-              onClick={() => setShowQuickAdd(true)}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Quick Add</span>
-            </button>
-            <button
               onClick={() => setShowAddExpenseModal(true)}
-              className="px-4 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 transition-colors flex items-center space-x-2"
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center space-x-2"
             >
               <Plus className="h-4 w-4" />
               <span>Add Expense</span>
@@ -242,9 +210,16 @@ const Expenses: React.FC = () => {
               <Users className="h-6 w-6 text-warning-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Groups</p>
+              <p className="text-sm font-medium text-gray-600">
+                Group Expenses
+              </p>
               <p className="text-2xl font-bold text-warning-600">
-                {groups.length}
+                {
+                  expenses.filter(
+                    (expense) =>
+                      expense.group && typeof expense.group === "object"
+                  ).length
+                }
               </p>
             </div>
           </div>
@@ -256,20 +231,18 @@ const Expenses: React.FC = () => {
               <Calendar className="h-6 w-6 text-info-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">This Month</p>
+              <p className="text-sm font-medium text-gray-600">
+                Non-Group Expenses
+              </p>
               <p className="text-2xl font-bold text-info-600">
-                {formatCurrency(
-                  expenses
-                    .filter((expense) => {
-                      const expenseDate = new Date(expense.date);
-                      const now = new Date();
-                      return (
-                        expenseDate.getMonth() === now.getMonth() &&
-                        expenseDate.getFullYear() === now.getFullYear()
-                      );
-                    })
-                    .reduce((sum, expense) => sum + expense.amount, 0)
-                )}
+                {
+                  expenses.filter(
+                    (expense) =>
+                      !expense.group ||
+                      (typeof expense.group === "string" &&
+                        !groups.some((g) => g._id === expense.group))
+                  ).length
+                }
               </p>
             </div>
           </div>
@@ -289,7 +262,8 @@ const Expenses: React.FC = () => {
             onChange={(e) => setSelectedGroup(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
           >
-            <option value="">All Groups</option>
+            <option value="">All Expenses</option>
+            <option value="no-group">Non-Group Expenses</option>
             {groups.map((group) => (
               <option key={group._id} value={group._id}>
                 {group.name}
@@ -325,201 +299,191 @@ const Expenses: React.FC = () => {
               <p className="text-gray-500">No expenses found</p>
             </div>
           ) : (
-            filteredExpenses.map((expense) => (
-              <div key={expense._id} className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="text-2xl">
-                      {getCategoryIcon(expense.category)}
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {expense.description}
-                      </p>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <span className="flex items-center space-x-1">
-                          <Users className="h-4 w-4" />
-                          <span>
-                            {typeof expense.group === "object"
-                              ? expense.group.name
-                              : "No Group"}
+            filteredExpenses.map((expense) => {
+              const userSplit = expense.splits.find(
+                (split) => split.user._id === user?._id
+              );
+              const otherSplits = expense.splits.filter(
+                (split) => split.user._id !== user?._id
+              );
+              const isUserPayer = expense.paidBy._id === user?._id;
+              const userOweAmount = userSplit?.amount || 0;
+              const userPaidAmount = isUserPayer ? expense.amount : 0;
+
+              return (
+                <div
+                  key={expense._id}
+                  className="p-6 border-b border-gray-200 last:border-b-0"
+                >
+                  {/* Expense Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-4">
+                      <div className="text-2xl">
+                        {getCategoryIcon(expense.category)}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">
+                          {expense.description}
+                        </p>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <span className="flex items-center space-x-1">
+                            <Users className="h-4 w-4" />
+                            <span>
+                              {expense.group &&
+                              typeof expense.group === "object"
+                                ? expense.group.name
+                                : "No Group"}
+                            </span>
                           </span>
+                          <span className="flex items-center space-x-1">
+                            <Calendar className="h-4 w-4" />
+                            <span>{formatDate(expense.date)}</span>
+                          </span>
+                          <span className="flex items-center space-x-1">
+                            <Tag className="h-4 w-4" />
+                            <span className="capitalize">
+                              {expense.category}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right">
+                        <p className="text-lg font-semibold text-gray-900">
+                          {formatCurrency(expense.amount)}
+                        </p>
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getSplitTypeColor(
+                            expense.splitType
+                          )}`}
+                        >
+                          {expense.splitType}
                         </span>
-                        <span className="flex items-center space-x-1">
-                          <Calendar className="h-4 w-4" />
-                          <span>{formatDate(expense.date)}</span>
-                        </span>
-                        <span className="flex items-center space-x-1">
-                          <Tag className="h-4 w-4" />
-                          <span className="capitalize">{expense.category}</span>
-                        </span>
+                      </div>
+
+                      <div className="flex space-x-2">
+                        <button className="p-2 text-gray-400 hover:text-primary-600 transition-colors">
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button className="p-2 text-gray-400 hover:text-danger-600 transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                      <p className="text-lg font-semibold text-gray-900">
-                        {formatCurrency(expense.amount)}
-                      </p>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getSplitTypeColor(
-                          expense.splitType
-                        )}`}
-                      >
-                        {expense.splitType}
-                      </span>
+                  {/* Payment Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    {/* Who Paid */}
+                    <div>
+                      <p className="font-medium text-gray-700 mb-2">Paid by:</p>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-gray-600">
+                          {expense.paidBy.firstName} {expense.paidBy.lastName}
+                        </span>
+                        {isUserPayer && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            You
+                          </span>
+                        )}
+                      </div>
+                      {expense.paidByMultiple &&
+                        expense.paidByMultiple.length > 0 && (
+                          <div className="mt-2">
+                            {expense.paidByMultiple.map((payer, index) => (
+                              <div
+                                key={`payer-${payer.user._id}-${index}`}
+                                className="text-xs text-gray-500"
+                              >
+                                {payer.user.firstName} {payer.user.lastName}:{" "}
+                                {formatCurrency(payer.amount)}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                     </div>
 
-                    <div className="flex space-x-2">
-                      <button className="p-2 text-gray-400 hover:text-primary-600 transition-colors">
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button className="p-2 text-gray-400 hover:text-danger-600 transition-colors">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    {/* Your Status */}
+                    <div>
+                      <p className="font-medium text-gray-700 mb-2">
+                        Your status:
+                      </p>
+                      <div className="space-y-1">
+                        {isUserPayer ? (
+                          <div className="flex items-center justify-between">
+                            <span className="text-green-600">You paid</span>
+                            <span className="font-medium text-green-600">
+                              {formatCurrency(userPaidAmount)}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-orange-600">You owe</span>
+                            <span className="font-medium text-orange-600">
+                              {formatCurrency(userOweAmount)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-500">Status</span>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${
+                              userSplit?.isPaid
+                                ? "bg-green-100 text-green-800"
+                                : "bg-yellow-100 text-yellow-800"
+                            }`}
+                          >
+                            {userSplit?.isPaid ? "Paid" : "Pending"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Other Participants */}
+                    <div>
+                      <p className="font-medium text-gray-700 mb-2">
+                        Other participants:
+                      </p>
+                      <div className="space-y-1">
+                        {otherSplits.length > 0 ? (
+                          otherSplits.map((split) => (
+                            <div
+                              key={split.user._id}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <span className="text-gray-600">
+                                {split.user.firstName} {split.user.lastName}
+                              </span>
+                              <div className="flex items-center space-x-1">
+                                <span className="text-gray-500">
+                                  {formatCurrency(split.amount)}
+                                </span>
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    split.isPaid
+                                      ? "bg-green-400"
+                                      : "bg-yellow-400"
+                                  }`}
+                                ></span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            No other participants
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
-
-      {/* Quick Add Modal */}
-      {showQuickAdd && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Quick Add Expense
-            </h3>
-            <form onSubmit={handleQuickAdd}>
-              <div className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="quick-description"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Description
-                  </label>
-                  <input
-                    id="quick-description"
-                    type="text"
-                    value={quickAddForm.description}
-                    onChange={(e) =>
-                      setQuickAddForm({
-                        ...quickAddForm,
-                        description: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                    placeholder="What did you spend on?"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="quick-amount"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Amount (LKR)
-                  </label>
-                  <input
-                    id="quick-amount"
-                    type="number"
-                    step="0.01"
-                    value={quickAddForm.amount}
-                    onChange={(e) =>
-                      setQuickAddForm({
-                        ...quickAddForm,
-                        amount: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="quick-group"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Group
-                  </label>
-                  <select
-                    id="quick-group"
-                    value={quickAddForm.groupId}
-                    onChange={(e) =>
-                      setQuickAddForm({
-                        ...quickAddForm,
-                        groupId: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                    required
-                  >
-                    <option value="">Select a group</option>
-                    {groups.map((group) => (
-                      <option key={group._id} value={group._id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="quick-category"
-                    className="block text-sm font-medium text-gray-700 mb-1"
-                  >
-                    Category
-                  </label>
-                  <select
-                    id="quick-category"
-                    value={quickAddForm.category}
-                    onChange={(e) =>
-                      setQuickAddForm({
-                        ...quickAddForm,
-                        category: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                  >
-                    <option value="food">Food & Dining</option>
-                    <option value="transport">Transportation</option>
-                    <option value="entertainment">Entertainment</option>
-                    <option value="shopping">Shopping</option>
-                    <option value="utilities">Utilities</option>
-                    <option value="health">Health & Medical</option>
-                    <option value="travel">Travel</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  type="button"
-                  onClick={() => setShowQuickAdd(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
-                >
-                  Add Expense
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Add Expense Modal */}
       <AddExpenseModal

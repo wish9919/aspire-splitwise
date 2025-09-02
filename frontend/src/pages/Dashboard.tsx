@@ -41,12 +41,14 @@ const Dashboard: React.FC = () => {
       const userGroups = await groupsApi.getUserGroups();
       setGroups(userGroups);
 
-      // Fetch recent expenses from all groups
+      // Fetch all user expenses (both group and non-group)
       const allExpenses: Expense[] = [];
+
+      // Fetch group expenses
       for (const group of userGroups) {
         try {
           const groupExpenses = await expensesApi.getGroupExpenses(group._id, {
-            limit: 5,
+            limit: 10,
           });
           allExpenses.push(...groupExpenses.data);
         } catch (error) {
@@ -55,6 +57,20 @@ const Dashboard: React.FC = () => {
             error
           );
         }
+      }
+
+      // Fetch non-group expenses
+      try {
+        const userExpensesResponse = await expensesApi.getUserExpenses();
+        const nonGroupExpenses = userExpensesResponse.expenses.filter(
+          (expense) =>
+            !expense.group ||
+            (typeof expense.group === "string" &&
+              !userGroups.some((g) => g._id === expense.group))
+        );
+        allExpenses.push(...nonGroupExpenses);
+      } catch (error) {
+        console.error("Error fetching non-group expenses:", error);
       }
 
       // Sort by date and take most recent
@@ -72,24 +88,33 @@ const Dashboard: React.FC = () => {
         (sum, expense) => sum + expense.amount,
         0
       );
-      const userExpenses = allExpenses.filter(
-        (expense) => expense.paidBy._id === user?._id
-      );
-      const userSplits = allExpenses.flatMap((expense) =>
-        expense.splits.filter((split) => split.user._id === user?._id)
-      );
 
-      const totalOwed = userExpenses.reduce((sum, expense) => {
-        const unpaidSplits = expense.splits.filter((split) => !split.isPaid);
-        return (
-          sum +
-          unpaidSplits.reduce((splitSum, split) => splitSum + split.amount, 0)
-        );
+      // Calculate what user is owed (money others owe to user)
+      const totalOwed = allExpenses.reduce((sum, expense) => {
+        // If user paid for this expense, they are owed money from others
+        if (expense.paidBy._id === user?._id) {
+          const unpaidSplits = expense.splits.filter((split) => !split.isPaid);
+          return (
+            sum +
+            unpaidSplits.reduce((splitSum, split) => splitSum + split.amount, 0)
+          );
+        }
+        return sum;
       }, 0);
 
-      const totalOwing = userSplits
-        .filter((split) => !split.isPaid)
-        .reduce((sum, split) => sum + split.amount, 0);
+      // Calculate what user owes (money user owes to others)
+      const totalOwing = allExpenses.reduce((sum, expense) => {
+        // If user didn't pay for this expense, they might owe money
+        if (expense.paidBy._id !== user?._id) {
+          const userSplit = expense.splits.find(
+            (split) => split.user._id === user?._id
+          );
+          if (userSplit && !userSplit.isPaid) {
+            return sum + userSplit.amount;
+          }
+        }
+        return sum;
+      }, 0);
 
       setStats({
         totalGroups: userGroups.length,
@@ -306,39 +331,155 @@ const Dashboard: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {recentExpenses.map((expense) => (
-                  <div
-                    key={expense._id}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="flex items-center">
-                      <div className="p-2 bg-success-100 rounded-lg">
-                        <Receipt className="h-5 w-5 text-success-600" />
+                {recentExpenses.map((expense) => {
+                  const userSplit = expense.splits.find(
+                    (split) => split.user._id === user?._id
+                  );
+                  const otherSplits = expense.splits.filter(
+                    (split) => split.user._id !== user?._id
+                  );
+                  const isUserPayer = expense.paidBy._id === user?._id;
+                  const userOweAmount = userSplit?.amount || 0;
+                  const userPaidAmount = isUserPayer ? expense.amount : 0;
+
+                  return (
+                    <div
+                      key={expense._id}
+                      className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    >
+                      {/* Expense Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center">
+                          <div className="p-2 bg-success-100 rounded-lg">
+                            <Receipt className="h-5 w-5 text-success-600" />
+                          </div>
+                          <div className="ml-3">
+                            <p className="font-medium text-gray-900">
+                              {expense.description}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {formatDate(expense.date)} •{" "}
+                              {expense.group &&
+                              typeof expense.group === "object"
+                                ? expense.group.name
+                                : "No Group"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium text-gray-900">
+                            {formatCurrency(expense.amount)}
+                          </p>
+                          <p className="text-xs text-gray-500 capitalize">
+                            {expense.category}
+                          </p>
+                        </div>
                       </div>
-                      <div className="ml-3">
-                        <p className="font-medium text-gray-900">
-                          {expense.description}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {expense.paidBy.firstName} •{" "}
-                          {formatDate(expense.date)}
-                        </p>
+
+                      {/* Payment Details */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        {/* Who Paid */}
+                        <div>
+                          <p className="font-medium text-gray-700 mb-1">
+                            Paid by:
+                          </p>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-gray-600">
+                              {expense.paidBy.firstName}{" "}
+                              {expense.paidBy.lastName}
+                            </span>
+                            {isUserPayer && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                You
+                              </span>
+                            )}
+                          </div>
+                          {expense.paidByMultiple &&
+                            expense.paidByMultiple.length > 0 && (
+                              <div className="mt-1">
+                                {expense.paidByMultiple.map((payer, index) => (
+                                  <div
+                                    key={`payer-${payer.user._id}-${index}`}
+                                    className="text-xs text-gray-500"
+                                  >
+                                    {payer.user.firstName} {payer.user.lastName}
+                                    : {formatCurrency(payer.amount)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+
+                        {/* Your Status */}
+                        <div>
+                          <p className="font-medium text-gray-700 mb-1">
+                            Your status:
+                          </p>
+                          <div className="space-y-1">
+                            {isUserPayer ? (
+                              <div className="flex items-center justify-between">
+                                <span className="text-green-600">You paid</span>
+                                <span className="font-medium text-green-600">
+                                  {formatCurrency(userPaidAmount)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <span className="text-orange-600">You owe</span>
+                                <span className="font-medium text-orange-600">
+                                  {formatCurrency(userOweAmount)}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-500">Status</span>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full ${
+                                  userSplit?.isPaid
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}
+                              >
+                                {userSplit?.isPaid ? "Paid" : "Pending"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
+
+                      {/* Other Participants */}
+                      {otherSplits.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <p className="text-xs font-medium text-gray-700 mb-2">
+                            Other participants:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {otherSplits.map((split) => (
+                              <div
+                                key={split.user._id}
+                                className="flex items-center space-x-1 text-xs bg-gray-100 px-2 py-1 rounded"
+                              >
+                                <span className="text-gray-600">
+                                  {split.user.firstName} {split.user.lastName}
+                                </span>
+                                <span className="text-gray-500">
+                                  ({formatCurrency(split.amount)})
+                                </span>
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    split.isPaid
+                                      ? "bg-green-400"
+                                      : "bg-yellow-400"
+                                  }`}
+                                ></span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">
-                        {formatCurrency(expense.amount)}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {expense.splits.find(
-                          (split) => split.user._id === user?._id
-                        )?.isPaid
-                          ? "Paid"
-                          : "Pending"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

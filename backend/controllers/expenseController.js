@@ -157,6 +157,11 @@ const createExpense = async (req, res) => {
         .json({ message: "No participants specified for expense." });
     }
 
+    // Ensure the person who paid is always included in the split
+    if (!expenseParticipants.includes(req.user._id.toString())) {
+      expenseParticipants.push(req.user._id.toString());
+    }
+
     // Debug: Log the paidByMultiple data
     console.log("paidByMultiple received:", paidByMultiple);
 
@@ -167,7 +172,7 @@ const createExpense = async (req, res) => {
       group: groupId || null,
       paidBy: req.user._id,
       paidByMultiple:
-        paidByMultiple && paidByMultiple.length > 0 ? paidByMultiple : [],
+        paidByMultiple && paidByMultiple.length > 1 ? paidByMultiple : [],
       category,
       date: new Date(date),
       splitType,
