@@ -6,23 +6,26 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:prod": "tsc && vite build --mode production",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:prod": "vite preview --mode production"
   },
   "dependencies": {
+    "axios": "^1.3.4",
+    "clsx": "^1.2.1",
+    "date-fns": "^2.29.3",
+    "lucide-react": "^0.263.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.0",
-    "axios": "^1.3.4",
     "react-hook-form": "^7.43.5",
     "react-hot-toast": "^2.4.0",
-    "lucide-react": "^0.263.1",
-    "clsx": "^1.2.1",
-    "tailwind-merge": "^1.13.2",
+    "react-router-dom": "^6.8.0",
     "recharts": "^2.5.0",
-    "date-fns": "^2.29.3"
+    "tailwind-merge": "^1.13.2"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "@types/react": "^18.0.28",
     "@types/react-dom": "^18.0.11",
     "@typescript-eslint/eslint-plugin": "^5.57.1",

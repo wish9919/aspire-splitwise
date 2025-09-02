@@ -9,12 +9,6 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 3000,
-      proxy: {
-        "/api": {
-          target: env.ASPIRE_SPLITWISE_API_URL || "http://localhost:5000",
-          changeOrigin: true,
-        },
-      },
     },
   };
 });
